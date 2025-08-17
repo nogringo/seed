@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:nip19/nip19.dart';
 
 void main() {
@@ -16,27 +16,25 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       title: "Seed",
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Color(0xFFFFB200)),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
       ),
       darkTheme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Color(0xFFFFB200),
+          seedColor: Colors.teal,
           brightness: Brightness.dark,
         ),
       ),
       home: Scaffold(
         body: SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.only(
-              top: kToolbarHeight,
-              bottom: 8,
-              right: 8,
-              left: 8,
+            padding: const EdgeInsets.symmetric(
+              vertical: kToolbarHeight,
+              horizontal: 16,
             ),
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 300),
+                constraints: BoxConstraints(maxWidth: 400),
                 child: SeederView(),
               ),
             ),
@@ -47,16 +45,29 @@ class MainApp extends StatelessWidget {
   }
 }
 
-class SeederView extends StatelessWidget {
+class SeederView extends StatefulWidget {
   const SeederView({super.key});
 
   @override
+  State<SeederView> createState() => _SeederViewState();
+}
+
+class _SeederViewState extends State<SeederView> {
+  final nameController = TextEditingController();
+  final seedController = TextEditingController();
+  bool isGenerating = false;
+
+  @override
   Widget build(BuildContext context) {
-    final seedController = TextEditingController();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text("Seed", style: Theme.of(context).textTheme.displaySmall),
+        TextField(
+          controller: nameController,
+          decoration: InputDecoration(hintText: "Your Name"),
+        ),
+        SizedBox(height: 16),
         TextField(
           controller: seedController,
           decoration: InputDecoration(
@@ -65,22 +76,63 @@ class SeederView extends StatelessWidget {
         ),
         SizedBox(height: 16),
         FilledButton.icon(
-          onPressed: () async {
-            final nsec = generateNsecFromString(seedController.text);
-            await Clipboard.setData(ClipboardData(text: nsec));
-          },
-          label: Text("Copy your nsec"),
+          onPressed: isGenerating ? null : generateNsec,
+          label: Text(isGenerating ? "Generating" : "Copy your nsec"),
           icon: Icon(Icons.copy),
         ),
       ],
     );
   }
+
+  void generateNsec() async {
+    setState(() {
+      isGenerating = true;
+    });
+
+    final nsec = await generateNsecFromString(
+      seedController.text,
+      salt: nameController.text,
+    );
+
+    setState(() {
+      isGenerating = false;
+    });
+
+    await Clipboard.setData(ClipboardData(text: nsec));
+  }
 }
 
-String generateNsecFromString(String seed) {
-  final bytes = utf8.encode(seed);
-  final digest = sha256.convert(bytes);
-  final privateKeyHex = digest.toString();
+Future<String> generateNsecFromString(String seed, {String salt = ''}) async {
+  final saltString = "nostr_seed_v1:${salt.toLowerCase().replaceAll(" ", "")}";
+  final saltBytes = utf8.encode(saltString);
+
+  // Argon2id parameters - these are secure defaults
+  // Memory: 64 MB (65536 KB)
+  // Iterations: 3
+  // Parallelism: 4
+  final algorithm = Argon2id(
+    memory: 19000, // 64 MB
+    iterations: 2,
+    parallelism: 1,
+    hashLength: 32, // 256 bits for secp256k1
+  );
+
+  // Create a SecretKey from the password
+  final passwordKey = SecretKey(utf8.encode(seed));
+
+  // Derive the key
+  final derivedKey = await algorithm.deriveKey(
+    secretKey: passwordKey,
+    nonce: saltBytes,
+  );
+
+  // Get the raw bytes
+  final privateKeyBytes = await derivedKey.extractBytes();
+
+  // Convert to hex
+  final privateKeyHex = privateKeyBytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
 
   return Nip19.nsecFromHex(privateKeyHex);
 }
