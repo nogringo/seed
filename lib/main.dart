@@ -111,9 +111,9 @@ Future<String> generateNsecFromString(String seed, {String salt = ''}) async {
   // Iterations: 3
   // Parallelism: 4
   final algorithm = Argon2id(
-    memory: 19000, // 64 MB
-    iterations: 2,
-    parallelism: 1,
+    memory: 262144, // 64 MB
+    iterations: 10,
+    parallelism: 8,
     hashLength: 32, // 256 bits for secp256k1
   );
 
